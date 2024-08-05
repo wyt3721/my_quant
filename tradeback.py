@@ -93,7 +93,7 @@ def simple_moving_account_balance(data, short_window, long_window, initial_capit
 
 # Main function for the Streamlit app
 def main():
-    st.title('股票回测框架')
+    st.title('股票回测演示系统')
 
     # User inputs
     ticker = st.sidebar.text_input('股票代码', 'sh600519')
