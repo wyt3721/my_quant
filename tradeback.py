@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import akshare as ak
-import mplfinance as mpf
+# import mplfinance as mpf
 from PIL import Image
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
