@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import akshare as ak
+import mplfinance as mpf
+from PIL import Image
 import matplotlib.pyplot as plt
 
 
@@ -83,6 +85,9 @@ def simple_moving_account_balance(data, short_window, long_window, initial_capit
             # Account for the value of the shares held
             data.at[data.index[i], 'Capital'] = capital + shares_held * data.at[data.index[i], 'close']
 
+            # Record the number of shares held at each step
+            data.at[data.index[i], 'Shares_Held'] = shares_held
+
     # Calculate Sharpe ratio
     # Assuming a risk-free rate of 0
     rf = 0.0
@@ -93,7 +98,7 @@ def simple_moving_account_balance(data, short_window, long_window, initial_capit
 
 # Main function for the Streamlit app
 def main():
-    st.title('股票回测演示系统')
+    st.title('股票回测框架')
 
     # User inputs
     ticker = st.sidebar.text_input('股票代码', 'sh600519')
@@ -119,26 +124,58 @@ def main():
                                                               stop_loss=stop_loss)
 
         # Display results
-        st.subheader('均线走势')
-        st.line_chart(results[['close', 'ShortMA', 'LongMA']])
+        st.subheader('K线走势')
+
+        # Plotting K-line chart with moving averages using mplfinance
+        mpf.plot(results, type='candle', style='charles',
+                 title=f'{ticker} K-Line Chart',
+                 ylabel='Price',
+                 volume=True,  # This will create a separate subplot for volume
+                 mav=(short_window, long_window),
+                 figratio=(12, 10),
+                 figscale=1.5,
+                 tight_layout=True,
+                 show_nontrading=False,
+                 savefig=dict(fname='kline_chart.png', dpi=300))
+
+        # Load the K-line chart image and display it in Streamlit
+        kline_chart = Image.open('kline_chart.png')
+        st.image(kline_chart, caption='K-Line Chart')
 
         # Display account balance changes
         st.subheader('余额变化')
 
-        # Plotting account balance with buy/sell signals using matplotlib
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(results.index, results['Capital'], label='Capital', color='blue')
-        ax.scatter(results[results['Buy_Signal'] != 0].index, results[results['Buy_Signal'] != 0]['Capital'],
-                   color='green', label='Buy Signal', marker='^')
-        ax.scatter(results[results['Sell_Signal'] != 0].index, results[results['Sell_Signal'] != 0]['Capital'],
-                   color='red', label='Sell Signal', marker='v')
-        ax.scatter(results[results['Stop_Loss_Signal'] != 0].index,
-                   results[results['Stop_Loss_Signal'] != 0]['Capital'], color='purple', label='Stop Loss', marker='x')
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Capital')
-        ax.set_title('Capital with Buy/Sell/Stop Loss Signals')
-        ax.legend()
-        st.pyplot(fig)
+        # After plotting the K-line chart, before displaying the account balance changes
+        st.subheader('持股数量变化')
+
+        # Plot the number of shares held
+        fig_shares, ax_shares = plt.subplots(figsize=(12, 6))
+        ax_shares.plot(results.index, results['Shares_Held'], label='Shares Held')
+        ax_shares.set_title('Shares Held Over Time')
+        ax_shares.set_xlabel('Date')
+        ax_shares.set_ylabel('Number of Shares')
+        ax_shares.legend()
+        ax_shares.grid(True)
+
+        # Save and display the shares held plot
+        plt.savefig('shares_held.png', dpi=300)
+        st.pyplot(fig_shares)
+
+        # Display account balance changes
+        st.subheader('账户余额变化')
+
+        # Plot the account balance
+        fig_balance, ax_balance = plt.subplots(figsize=(12, 6))
+        ax_balance.plot(results.index, results['Capital'], label='Account Balance')
+        ax_balance.set_title('Account Balance Over Time')
+        ax_balance.set_xlabel('Date')
+        ax_balance.set_ylabel('Account Balance (RMB)')
+        ax_balance.legend()
+        ax_balance.grid(True)
+
+        # Save and display the account balance plot
+        plt.savefig('account_balance.png', dpi=300)
+        st.pyplot(fig_balance)
 
         # Display Sharpe ratio
         st.subheader('夏普比率')
