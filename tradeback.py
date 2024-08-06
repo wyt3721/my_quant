@@ -5,6 +5,8 @@ import akshare as ak
 import mplfinance as mpf
 from PIL import Image
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 # Define a function to fetch stock data based on the exchange
@@ -96,11 +98,11 @@ def simple_moving_account_balance(data, short_window, long_window, initial_capit
     return data, sharpe_ratio
 
 
-# Main function for the Streamlit app
+# 主函数
 def main():
     st.title('股票回测框架')
 
-    # User inputs
+    # 用户输入
     ticker = st.sidebar.text_input('股票代码', 'sh600519')
     start_date = st.sidebar.date_input('开始日期', value=pd.to_datetime('2019-01-01'))
     end_date = st.sidebar.date_input('结束日期', value=pd.to_datetime('2024-07-31'))
@@ -109,73 +111,72 @@ def main():
     long_window = st.sidebar.slider('长期移动平均窗口', min_value=10, max_value=100, value=20)
 
     initial_capital = st.number_input('初始资本', value=1000000)
+    take_profit = st.number_input('止盈点（百分比）', value=0.3, format="%.2f")
     stop_loss = st.number_input('止损点（百分比）', value=-0.07, format="%.2f")
 
+    st.write('长短期均值策略')
     if st.button('执行回测'):
-        # Fetch stock data
+        # 获取股票数据
         try:
             data = get_stock_data(ticker, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
         except Exception as e:
             st.error(f"无法获取股票数据: {e}")
             return
 
-        # Apply the strategy
+        # 应用策略
         results, sharpe_ratio = simple_moving_account_balance(data, short_window, long_window, initial_capital,
                                                               stop_loss=stop_loss)
 
-        # Display results
+        # 显示结果
+        st.subheader('均线走势')
+        st.line_chart(results[['close', 'ShortMA', 'LongMA']])
+
         st.subheader('K线走势')
 
-        # Plotting K-line chart with moving averages using mplfinance
-        mpf.plot(results, type='candle', style='charles',
-                 title=f'{ticker} K-Line Chart',
-                 ylabel='Price',
-                 volume=True,  # This will create a separate subplot for volume
-                 mav=(short_window, long_window),
-                 figratio=(12, 10),
-                 figscale=1.5,
-                 tight_layout=True,
-                 show_nontrading=False,
-                 savefig=dict(fname='kline_chart.png', dpi=300))
+        # 创建一个具有两个子图的布局，其中第一个子图占据大部分空间
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                            vertical_spacing=0.03,
+                            row_width=[0.2, 0.7])  # 调整行的高度比例
 
-        # Load the K-line chart image and display it in Streamlit
-        kline_chart = Image.open('kline_chart.png')
-        st.image(kline_chart, caption='K-Line Chart')
+        # 添加 K 线图
+        fig.add_trace(go.Candlestick(x=results.index,
+                                     open=results['open'],
+                                     high=results['high'],
+                                     low=results['low'],
+                                     close=results['close'],
+                                     name='K Line'), row=1, col=1)
 
-        # Display account balance changes
-        st.subheader('余额变化')
+        # 添加短期和长期移动平均线
+        fig.add_trace(go.Scatter(x=results.index, y=results['ShortMA'], mode='lines', name='Short MA', line=dict(color='blue')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=results.index, y=results['LongMA'], mode='lines', name='Long MA', line=dict(color='red')), row=1, col=1)
 
-        # After plotting the K-line chart, before displaying the account balance changes
-        st.subheader('持股数量变化')
+        # 添加成交量图
+        fig.add_trace(go.Bar(x=results.index, y=results['volume'], name='Volume', marker_color='dimgray'), row=2, col=1)
 
-        # Plot the number of shares held
-        fig_shares, ax_shares = plt.subplots(figsize=(12, 6))
-        ax_shares.plot(results.index, results['Shares_Held'], label='Shares Held')
-        ax_shares.set_title('Shares Held Over Time')
-        ax_shares.set_xlabel('Date')
-        ax_shares.set_ylabel('Number of Shares')
-        ax_shares.legend()
-        ax_shares.grid(True)
+        # 更新图表的布局
+        fig.update_layout(
+            title_text=f'{ticker} K-Line Chart',
+            xaxis_rangeslider_visible=False,  # 隐藏 K 线图下的范围滑块
+            xaxis=dict(
+                rangeslider=dict(
+                    visible=False  # 隐藏成交量图下的范围滑块
+                ),
+                type='category'  # 设置 X 轴为类别类型，避免自动填充缺失日期
+            ),
+            height=600,  # 整体图表的高度
+            width=900,  # 整体图表的宽度
+            showlegend=True,  # 显示图例
+            legend=dict(
+                orientation="h",  # 水平布局
+                yanchor="bottom",  # 图例底部对齐
+                y=1.02,  # 图例位置
+                xanchor="right",  # 图例右对齐
+                x=1  # 图例位置
+            )
+        )
 
-        # Save and display the shares held plot
-        plt.savefig('shares_held.png', dpi=300)
-        st.pyplot(fig_shares)
-
-        # Display account balance changes
-        st.subheader('账户余额变化')
-
-        # Plot the account balance
-        fig_balance, ax_balance = plt.subplots(figsize=(12, 6))
-        ax_balance.plot(results.index, results['Capital'], label='Account Balance')
-        ax_balance.set_title('Account Balance Over Time')
-        ax_balance.set_xlabel('Date')
-        ax_balance.set_ylabel('Account Balance (RMB)')
-        ax_balance.legend()
-        ax_balance.grid(True)
-
-        # Save and display the account balance plot
-        plt.savefig('account_balance.png', dpi=300)
-        st.pyplot(fig_balance)
+        # 显示 Plotly 图表
+        st.plotly_chart(fig, use_container_width=True)
 
         # Display Sharpe ratio
         st.subheader('夏普比率')
