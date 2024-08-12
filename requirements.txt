@@ -1,7 +1,7 @@
 streamlit
 plotly
 backtrader
-quantstats==0.0.62
+QuantStats==0.0.62
 pandas==2.2.2
 akshare==1.14.50
 matplotlib==3.9.0
