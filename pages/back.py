@@ -118,7 +118,7 @@ def load_data(stock_codes, start_date, end_date):
 def Output_report(target, base):
     # Generate Quantstats report
     # Specify a path to save the HTML report
-    report_path = "backtest_report.html"
+    report_path = "./backtest_report.html"
     qs.reports.html(target, base, output=report_path, title='回测结果')
 
     # Read the contents of the HTML file
