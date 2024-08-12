@@ -10,10 +10,50 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
+# # 获取沪深300历史交易数据
+# df_300 = ak.stock_zh_index_daily_em(symbol="sh000300", start_date="20170301", end_date='20240528')
+#
+# # 获取工商银行历史交易数据
+# df = ak.stock_zh_index_daily_em(symbol="sh601398", start_date="20170301", end_date='20240528')
+#
+# # 检查列名
+# st.write(df.head())
+# st.write(df_300.head())
+#
+# # 合并两个数据表
+# df_merge = df.merge(df_300, how='inner', on='date')
+# st.write(df_merge)
+#
+# # 将合并数据表的日期列改为时间格式
+# df_merge['date'] = pd.to_datetime(df_merge['date'], format='%Y-%m-%d')
+#
+# # 目标策略收益率Series，pct_change的作用是根据价格计算收益率
+# target = df_merge['close_x'].pct_change()
+# # 将索引设置为日期列
+# target.index = df_merge['date']
+# # 基准策略收益率Series，计算方法相同
+# base = df_merge['close_y'].pct_change()
+# base.index = df_merge['date']
+#
+# # Generate Quantstats report
+# # Specify a path to save the HTML report
+# report_path = "Output.html"
+# qs.reports.html(target, base, output=report_path, title='策略回测报告')
+#
+# # Read the contents of the HTML file
+# with open(report_path, 'r', encoding='utf-8') as f:
+#     html_report = f.read()
+#
+# # Use a StringIO object to store the HTML content
+# report_io = StringIO(html_report)
+#
+# # Display the Quantstats report
+# st.components.v1.html(report_io.read(), height=800, scrolling=True)
+
 class SimpleMovingAverageStrategy(bt.Strategy):
     params = (
-        ('fast_period', 9),  # 快速移动平均线周期
-        ('slow_period', 21),  # 慢速移动平均线周期
+        ('fast_period', 20),  # 快速移动平均线周期
+        ('slow_period', 50),  # 慢速移动平均线周期
         ('printlog', False),  # 打印日志
     )
 
@@ -105,20 +145,11 @@ class SimpleMovingAverageStrategy(bt.Strategy):
 
         self.log(f'OPERATION PROFIT, GROSS: {trade.pnl:.2f}, NET: {trade.pnlcomm:.2f}')
 
-def load_data(stock_codes, start_date, end_date):
-    dfs = []
-    for code in stock_codes:
-        df = ak.stock_zh_a_daily(symbol=code, adjust="qfq")
-        df = df[(df['date'] >= start_date) & (df['date'] <= end_date)]
-        df.set_index('date', inplace=True)
-        df.index = pd.to_datetime(df.index)
-        df = df[['open', 'high', 'low', 'close', 'volume']]
-        dfs.append(df)
-    return dfs
+
 def Output_report(target, base):
     # Generate Quantstats report
     # Specify a path to save the HTML report
-    report_path = "./backtest_report.html"
+    report_path = "backtest_report.html"
     qs.reports.html(target, base, output=report_path, title='回测结果')
 
     # Read the contents of the HTML file
@@ -133,15 +164,14 @@ def Output_report(target, base):
 
 
 def main():
-    st.title("回测报告")
-    st.info('参照沪深300指数')
+    st.title("策略回测报告")
 
     # User inputs
     stock_code = st.sidebar.text_input("请输入股票代码", "sh601398")
     start_date = st.sidebar.date_input("开始日期", datetime(2020, 1, 1))
     end_date = st.sidebar.date_input("结束日期", datetime(2024, 8, 7))
-    fast_period = st.sidebar.number_input("快速移动平均线周期", min_value=1, value=9)
-    slow_period = st.sidebar.number_input("慢速移动平均线周期", min_value=1, value=21)
+    fast_period = st.sidebar.number_input("快速移动平均线周期", min_value=1, value=20)
+    slow_period = st.sidebar.number_input("慢速移动平均线周期", min_value=1, value=50)
     initial_capital = st.sidebar.number_input("初始资本", min_value=1000, value=100000)
 
     if st.button("执行回测"):
@@ -151,13 +181,15 @@ def main():
             df = df[(df['date'] >= start_date) & (df['date'] <= end_date)]
             df.set_index('date', inplace=True)
 
-
             df.index = pd.to_datetime(df.index)
             df = df[['open', 'high', 'low', 'close', 'volume']]
+            # st.write(df.head())
+
+            # # 获取沪深300历史交易数据
+            df_300 = ak.stock_zh_index_daily_em(symbol="sh000300", start_date=start_date, end_date=end_date)
 
             # Backtest setup
             cerebro = bt.Cerebro(stdstats=False)
-            cerebro = bt.Cerebro()
             cerebro.addstrategy(SimpleMovingAverageStrategy, fast_period=fast_period, slow_period=slow_period)
             cerebro.broker.setcash(initial_capital)
             cerebro.broker.setcommission(commission=0.001)
@@ -170,7 +202,7 @@ def main():
             results = cerebro.run()
             strat = results[0]
             final_portfolio_value = cerebro.broker.getvalue()
-            st.write(f'组合价值: {final_portfolio_value:.2f} CNY')
+            st.write(f'Final Portfolio Value: {final_portfolio_value:.2f} CNY')
 
             # Extract the values from the indicators and remove NaN values
             fast_ma_values = strat.sma_fast.array[fast_period:]
@@ -196,23 +228,22 @@ def main():
             daily_portfolio_values = strat.analyzers.sma_analyzer.get_analysis()
 
             # Convert the daily portfolio values to a Series
-            daily_returns = pd.Series(daily_portfolio_values).pct_change().dropna()
+            # daily_returns = pd.Series(daily_portfolio_values).pct_change().dropna()
             start_date = datetime.strftime(start_date, '%Y%m%d')
             end_date = datetime.strftime(end_date, '%Y%m%d')
-            #
+
             df_300 = ak.stock_zh_index_daily_em(symbol="sh000300", start_date=start_date, end_date=end_date)
             df = ak.stock_zh_index_daily_em(symbol="sh601398", start_date=start_date, end_date=end_date)
-            #
-            df_merge = df.merge(df_300, how='inner', on='date')
-            # # # 将合并数据表的日期列改为时间格式
-            df_merge['date'] = pd.to_datetime(df_merge['date'], format='%Y-%m-%d')
-            #
-            # # # 目标策略收益率Series，pct_change的作用是根据价格计算收益率
-            target = df_merge['close_x'].pct_change()
-            # # # 将索引设置为日期列
-            target.index = df_merge['date']
-            # # # 基准策略收益率Series，计算方法相同
 
+            df_merge = df.merge(df_300, how='inner', on='date')
+            # # 将合并数据表的日期列改为时间格式
+            df_merge['date'] = pd.to_datetime(df_merge['date'], format='%Y-%m-%d')
+
+            # # 目标策略收益率Series，pct_change的作用是根据价格计算收益率
+            target = df_merge['close_x'].pct_change()
+            # # 将索引设置为日期列
+            target.index = df_merge['date']
+            # # 基准策略收益率Series，计算方法相同
             base = df_merge['close_y'].pct_change()
             base.index = df_merge['date']
 
