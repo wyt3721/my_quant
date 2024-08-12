@@ -10,50 +10,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
-# # 获取沪深300历史交易数据
-# df_300 = ak.stock_zh_index_daily_em(symbol="sh000300", start_date="20170301", end_date='20240528')
-#
-# # 获取工商银行历史交易数据
-# df = ak.stock_zh_index_daily_em(symbol="sh601398", start_date="20170301", end_date='20240528')
-#
-# # 检查列名
-# st.write(df.head())
-# st.write(df_300.head())
-#
-# # 合并两个数据表
-# df_merge = df.merge(df_300, how='inner', on='date')
-# st.write(df_merge)
-#
-# # 将合并数据表的日期列改为时间格式
-# df_merge['date'] = pd.to_datetime(df_merge['date'], format='%Y-%m-%d')
-#
-# # 目标策略收益率Series，pct_change的作用是根据价格计算收益率
-# target = df_merge['close_x'].pct_change()
-# # 将索引设置为日期列
-# target.index = df_merge['date']
-# # 基准策略收益率Series，计算方法相同
-# base = df_merge['close_y'].pct_change()
-# base.index = df_merge['date']
-#
-# # Generate Quantstats report
-# # Specify a path to save the HTML report
-# report_path = "Output.html"
-# qs.reports.html(target, base, output=report_path, title='策略回测报告')
-#
-# # Read the contents of the HTML file
-# with open(report_path, 'r', encoding='utf-8') as f:
-#     html_report = f.read()
-#
-# # Use a StringIO object to store the HTML content
-# report_io = StringIO(html_report)
-#
-# # Display the Quantstats report
-# st.components.v1.html(report_io.read(), height=800, scrolling=True)
-
 class SimpleMovingAverageStrategy(bt.Strategy):
     params = (
-        ('fast_period', 20),  # 快速移动平均线周期
-        ('slow_period', 50),  # 慢速移动平均线周期
+        ('fast_period', 9),  # 快速移动平均线周期
+        ('slow_period', 21),  # 慢速移动平均线周期
         ('printlog', False),  # 打印日志
     )
 
@@ -146,6 +106,26 @@ class SimpleMovingAverageStrategy(bt.Strategy):
         self.log(f'OPERATION PROFIT, GROSS: {trade.pnl:.2f}, NET: {trade.pnlcomm:.2f}')
 
 
+def load_data(stock_codes, start_date, end_date):
+    dfs = []
+    for code in stock_codes:
+        try:
+            # Add the exchange prefix to the stock code
+            # prefixed_code = f"{'sh' if code.startswith('6') else 'sz'}{code}"
+            # df = ak.stock_zh_a_daily(symbol=prefixed_code, adjust="qfq")
+            # print(f"Original data for {prefixed_code}:")
+            # print(df.head())
+            df = df[(df['date'] >= start_date) & (df['date'] <= end_date)]
+            df.set_index('date', inplace=True)
+            df.index = pd.to_datetime(df.index)
+            df = df[['open', 'high', 'low', 'close', 'volume']]
+            # print(f"Filtered data for {prefixed_code}:")
+            # print(df.head())
+            dfs.append(df)
+        except Exception as e:
+            print(f"Error loading data for {code}: {e}")
+
+    return dfs
 def Output_report(target, base):
     # Generate Quantstats report
     # Specify a path to save the HTML report
@@ -164,36 +144,46 @@ def Output_report(target, base):
 
 
 def main():
-    st.title("策略回测报告")
+    st.title("持有策略相对回报")
+    st.info('参照沪深300指数')
+
+    # Get the list of stock codes
+    # stock_codes_df = ak.stock_zh_a_spot_em()
+    # stock_codes = stock_codes_df['代码'].tolist()
 
     # User inputs
-    stock_code = st.sidebar.text_input("请输入股票代码", "sh601398")
+    # selected_codes = st.sidebar.multiselect("选择股票组合", stock_codes)
     start_date = st.sidebar.date_input("开始日期", datetime(2020, 1, 1))
     end_date = st.sidebar.date_input("结束日期", datetime(2024, 8, 7))
-    fast_period = st.sidebar.number_input("快速移动平均线周期", min_value=1, value=20)
-    slow_period = st.sidebar.number_input("慢速移动平均线周期", min_value=1, value=50)
+    fast_period = st.sidebar.number_input("快速移动平均线周期", min_value=1, value=9)
+    slow_period = st.sidebar.number_input("慢速移动平均线周期", min_value=1, value=21)
     initial_capital = st.sidebar.number_input("初始资本", min_value=1000, value=100000)
 
     if st.button("执行回测"):
         try:
             # Load data
-            df = ak.stock_zh_a_daily(symbol=stock_code, adjust="qfq")
-            df = df[(df['date'] >= start_date) & (df['date'] <= end_date)]
-            df.set_index('date', inplace=True)
+            selected_codes = ['sz300187','sh600360']
+            dfs = load_data(selected_codes, start_date, end_date)
 
-            df.index = pd.to_datetime(df.index)
-            df = df[['open', 'high', 'low', 'close', 'volume']]
-            # st.write(df.head())
+            # Combine the data into a single DataFrame
+            combined_df = pd.concat(dfs, keys=selected_codes, names=['Stock', 'Date']).sort_index(level=1)
+            combined_df['close'] = combined_df['close'].unstack(level=0)
+            combined_df['volume'] = combined_df['volume'].unstack(level=0)
 
-            # # 获取沪深300历史交易数据
-            df_300 = ak.stock_zh_index_daily_em(symbol="sh000300", start_date=start_date, end_date=end_date)
+            # Print the first few rows of the combined dataframe to check if it's correct
+            print("Combined Data:")
+            print(combined_df.head())
+
+            # Prepare the data for backtrading
+            datafeeds = [bt.feeds.PandasData(dataname=combined_df.xs(code, level=0)) for code in selected_codes]
 
             # Backtest setup
-            cerebro = bt.Cerebro(stdstats=False)
+            cerebro = bt.Cerebro()
             cerebro.addstrategy(SimpleMovingAverageStrategy, fast_period=fast_period, slow_period=slow_period)
             cerebro.broker.setcash(initial_capital)
             cerebro.broker.setcommission(commission=0.001)
-            cerebro.adddata(bt.feeds.PandasData(dataname=df))
+            for datafeed in datafeeds:
+                cerebro.adddata(datafeed)
 
             # Add a Simple Moving Average Analyzer
             cerebro.addanalyzer(bt.analyzers.TimeReturn, _name='sma_analyzer', timeframe=bt.TimeFrame.Days)
@@ -202,52 +192,43 @@ def main():
             results = cerebro.run()
             strat = results[0]
             final_portfolio_value = cerebro.broker.getvalue()
-            st.write(f'Final Portfolio Value: {final_portfolio_value:.2f} CNY')
-
-            # Extract the values from the indicators and remove NaN values
-            fast_ma_values = strat.sma_fast.array[fast_period:]
-            slow_ma_values = strat.sma_slow.array[slow_period:]
-
-            # Convert the array.array to list or numpy array
-            fast_ma_values = list(fast_ma_values)
-            slow_ma_values = list(slow_ma_values)
-
-            # Plotting
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_width=[0.2, 0.7])
-            fig.add_trace(
-                go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close']), row=1,
-                col=1)
-            fig.add_trace(go.Scatter(x=df.index[fast_period:], y=fast_ma_values, name='Fast MA'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index[slow_period:], y=slow_ma_values, name='Slow MA'), row=1, col=1)
-            fig.add_trace(go.Bar(x=df.index, y=df['volume'], name='Volume'), row=2, col=1)
-            fig.update_layout(title_text=f'Stock: {stock_code}, Fast MA: {fast_period}, Slow MA: {slow_period}',
-                              xaxis_rangeslider_visible=False)
-            st.plotly_chart(fig)
+            st.write(f'组合价值: {final_portfolio_value:.2f} CNY')
 
             # Extract the daily portfolio values from the analyzer
             daily_portfolio_values = strat.analyzers.sma_analyzer.get_analysis()
 
             # Convert the daily portfolio values to a Series
-            # daily_returns = pd.Series(daily_portfolio_values).pct_change().dropna()
-            start_date = datetime.strftime(start_date, '%Y%m%d')
-            end_date = datetime.strftime(end_date, '%Y%m%d')
+            daily_returns = pd.Series(daily_portfolio_values).pct_change().dropna()
 
-            df_300 = ak.stock_zh_index_daily_em(symbol="sh000300", start_date=start_date, end_date=end_date)
-            df = ak.stock_zh_index_daily_em(symbol="sh601398", start_date=start_date, end_date=end_date)
+            start_date_str = datetime.strftime(start_date, '%Y%m%d')
+            end_date_str = datetime.strftime(end_date, '%Y%m%d')
 
-            df_merge = df.merge(df_300, how='inner', on='date')
-            # # 将合并数据表的日期列改为时间格式
-            df_merge['date'] = pd.to_datetime(df_merge['date'], format='%Y-%m-%d')
+            # Load the benchmark data
+            df_300 = ak.stock_zh_index_daily_em(symbol="sh000300", start_date=start_date_str, end_date=end_date_str)
+            df_300['date'] = pd.to_datetime(df_300['date'])
+            df_300.set_index('date', inplace=True)
 
-            # # 目标策略收益率Series，pct_change的作用是根据价格计算收益率
-            target = df_merge['close_x'].pct_change()
-            # # 将索引设置为日期列
-            target.index = df_merge['date']
-            # # 基准策略收益率Series，计算方法相同
-            base = df_merge['close_y'].pct_change()
-            base.index = df_merge['date']
+            # Calculate the benchmark returns
+            base = df_300['close'].pct_change().dropna()
 
-            Output_report(target, base)
+            # Plotting
+            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_width=[0.2, 0.7])
+            for code in selected_codes:
+                prefixed_code = f"{'sz' if code.startswith('3') else 'sh'}{code}"
+                fig.add_trace(go.Candlestick(x=combined_df.xs(code, level=0).index,
+                                             open=combined_df.xs(code, level=0)['open'],
+                                             high=combined_df.xs(code, level=0)['high'],
+                                             low=combined_df.xs(code, level=0)['low'],
+                                             close=combined_df.xs(code, level=0)['close'],
+                                             name=prefixed_code), row=1, col=1)
+            fig.add_trace(go.Bar(x=combined_df.index, y=combined_df['volume'].sum(axis=1), name='Total Volume'), row=2,
+                          col=1)
+            fig.update_layout(
+                title_text=f'Stocks: {", ".join(selected_codes)}, Fast MA: {fast_period}, Slow MA: {slow_period}',
+                xaxis_rangeslider_visible=False)
+            st.plotly_chart(fig)
+
+            Output_report(daily_returns, base)
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
