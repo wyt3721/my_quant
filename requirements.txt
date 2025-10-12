@@ -3,5 +3,6 @@ plotly
 backtrader== 1.9.78.123
 QuantStats==0.0.62
 pandas==2.2.2
-akshare==1.14.50
+akshare
 matplotlib==3.9.0
+
